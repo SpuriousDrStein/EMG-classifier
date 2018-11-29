@@ -70,7 +70,7 @@ class processer:
 
             h_layers[0] = tf.layers.dense(x, h_layer_sizes[0], activation=tf.nn.relu)
             for i in range(len(h_layer_sizes)-1):
-                tf.layers.dense(h_layer_sizes[i], h_layer_sizes[i+1], activation=tf.nn.relu)
+                h_layers[i+1] = tf.layers.dense(h_layers[i], h_layer_sizes[i+1], activation=tf.nn.relu)
             out = tf.nn.softmax(h_layers[-1])
 
         return out
