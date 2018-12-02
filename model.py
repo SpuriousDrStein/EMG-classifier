@@ -4,6 +4,7 @@ import math as m
 import serial as ser
 import os
 from tensorflow.contrib.nn import conv1d_transpose
+from tensorflow.contrib.opt import AdamWOptimizer
 from tensorflow.contrib import autograph
 
 class processer:
@@ -48,12 +49,15 @@ class processer:
         return out
 
 
-def get_label():
+def get_label(exit_value=None):
     while True:
         for l in range(1,num_actions+1):
             print(actionspace[l-1],' = ', l)
         print('select label: ')
+        print('or exit by: ', exit_value)
         inp = input()
+        if inp == exit_value:
+            exit(0)
         if int(inp)<=num_actions and int(inp)>=1:
             return actionspace[int(inp)-1]
         else:
@@ -64,7 +68,7 @@ def get_label():
 # HPs
 NUM_CHANNELS = 6
 num_recordings = 1
-batch_size = 32
+batch_size = 64
 z_chan = 64
 h_size = 64
 num_actions = 3
@@ -105,10 +109,12 @@ nx5 = (x5 - mean5)/tf.sqrt(tf.square(var5)+0.00001) * gamma + beta
 nx6 = (x6 - mean6)/tf.sqrt(tf.square(var6)+0.00001) * gamma + beta
 
 xx1, xx2, xx3, xx4, xx5, xx6 = wm.encoder(nx1), wm.encoder(nx2, reuse=True), wm.encoder(nx3, reuse=True), wm.encoder(nx4, reuse=True), wm.encoder(nx5, reuse=True), wm.encoder(nx6, reuse=True)
-z = tf.concat(axis=0, values=[xx1,xx2,xx3,xx4,xx5,xx6])
-prediction = wm.fully_connected(z, h_layer_sizes=(75, 100, 50, 25, 12 ,num_actions))
-prediction_error = sum([(tf.losses.softmax_cross_entropy(label, tf.squeeze(prediction[u]))) for u in range(NUM_CHANNELS)])
-optimizer = tf.train.AdamOptimizer(learning_rate=0.003).minimize(prediction_error, var_list=tf.trainable_variables())
+z = tf.layers.flatten(tf.concat(axis=0, values=[xx1,xx2,xx3,xx4,xx5,xx6]))
+print('z shape: ', z.shape)
+prediction = wm.fully_connected(z, h_layer_sizes=(h_size*NUM_CHANNELS, int((h_size*NUM_CHANNELS)/2), int((h_size*NUM_CHANNELS)/4), int((h_size*NUM_CHANNELS)/6), int((h_size*NUM_CHANNELS)/8) ,num_actions))
+print('prediction shape: ', prediction.shape)
+prediction_error = tf.reduce_sum([(tf.losses.softmax_cross_entropy(label, tf.squeeze(prediction[u]))) for u in range(NUM_CHANNELS)])
+optimizer = AdamWOptimizer(learning_rate=0.001, weight_decay=0.39).minimize(prediction_error, var_list=tf.trainable_variables())
 
 
 # TRAINING
@@ -126,19 +132,23 @@ with tf.Session() as sess:
         raise(AttributeError)
 
     sess.run(tf.global_variables_initializer())
+    testing_byte = serial_connection.read(1)
 
     if training:
-        #for i in range(iterations):
+        for i in range(iterations):
 
-            # action_label = get_label()
-        print(serial_connection.read(6*6))
-
-            # a1, a2, a3, a4, a5, a6 = np.reshape(serial_connection.read(NUM_CHANNELS * batch_size), [NUM_CHANNELS, batch_size])
-            # print(a1,a2,a3,a4,a5,a6)
-            # _, pred, pred_err = sess.run([optimizer, prediction, prediction_error], feed_dict={'X1:0': a1, 'X2:0': a2, 'X3:0': a3, 'X4:0': a4, 'X5:0': a5, 'X6:0': a6, 'label:0':action_label})
+            action_label = get_label(exit_value='0')
+            a = np.array(serial_connection.read(NUM_CHANNELS*batch_size).split(b'\n'))
+            c = [d.split(b'\t') for d in a[0:-1]]
+            print(c)
+            print(len(c))
+            # convert to chanels over time
+            # assigne X1 to X6
             
-            # np.append(past_actions, [a1,a2,a3,a4,a5,a6], 0)
-            # # past_actions -> encode in temporal context (RNN) -> "env representation" -> policy network -> action_label_2
+            #_, pred, pred_err = sess.run([optimizer, prediction, prediction_error], feed_dict={'X1:0': a1, 'X2:0': a2, 'X3:0': a3, 'X4:0': a4, 'X5:0': a5, 'X6:0': a6, 'label:0':action_label})
+            
+            #np.append(past_actions, [a1,a2,a3,a4,a5,a6], 0)
+            # past_actions -> encode in temporal context (RNN) -> "env representation" -> policy network -> action_label_2
 
 
 
