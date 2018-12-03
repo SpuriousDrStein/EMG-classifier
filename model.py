@@ -3,6 +3,8 @@ import numpy as np
 import math as m
 import serial as ser
 import os
+import codecs
+import struct
 from tensorflow.contrib.nn import conv1d_transpose
 from tensorflow.contrib.opt import AdamWOptimizer
 from tensorflow.contrib import autograph
@@ -49,7 +51,7 @@ class processer:
         return out
 
 
-def get_label(exit_value=None):
+def get_label(actionspace, action_one_hot, exit_value=None):
     while True:
         for l in range(1,num_actions+1):
             print(actionspace[l-1],' = ', l)
@@ -59,7 +61,7 @@ def get_label(exit_value=None):
         if inp == exit_value:
             exit(0)
         if int(inp)<=num_actions and int(inp)>=1:
-            return actionspace[int(inp)-1]
+            return action_one_hot[int(inp)-1]
         else:
             continue
 
@@ -72,7 +74,6 @@ batch_size = 64
 z_chan = 64
 h_size = 64
 num_actions = 3
-enc_action_space = np.identity(num_actions, dtype=float)
 port = '\\.\COM3'
 
 
@@ -119,36 +120,52 @@ optimizer = AdamWOptimizer(learning_rate=0.001, weight_decay=0.39).minimize(pred
 
 # TRAINING
 actionspace = ['a','b','n']
+action_one_hot = np.identity(len(actionspace))
 training = True
+load = True
 iterations = 100
-past_actions = np.empty([0, NUM_CHANNELS])
+past_actions = np.empty([1, NUM_CHANNELS])
+saver = tf.train.Saver()
+pred_err = 9999
+local_save_path = '/saved_models/model_save.ckpt'
 
 serial_connection = ser.Serial(port=port, baudrate=9600)
-print('serial port: ', serial_connection.name, ' used')
+print('serial port: ', serial_connection.name, ' used. \nfirst hex bit: ', serial_connection.read(1))
 
 #   LOOP
 with tf.Session() as sess:
     if len(actionspace) != num_actions:
         raise(AttributeError)
 
+    if load:
+        print('load model')
+        saver.restore(sess, local_save_path)
+
     sess.run(tf.global_variables_initializer())
-    testing_byte = serial_connection.read(1)
 
     if training:
         for i in range(iterations):
 
-            action_label = get_label(exit_value='0')
-            a = np.array(serial_connection.read(NUM_CHANNELS*batch_size).split(b'\n'))
-            c = [d.split(b'\t') for d in a[0:-1]]
-            print(c)
-            print(len(c))
-            # convert to chanels over time
-            # assigne X1 to X6
+            print('current error', pred_err)
+            action_label = get_label(actionspace, action_one_hot, exit_value='0')
+
+            c = serial_connection.read(NUM_CHANNELS*batch_size*4)
+            c = codecs.decode(c, 'ascii')
+            c = c.split('\n')
+            c = [d.split('\t') for d in c[0:-1]]
+
+            for i in range(0,len(c)):
+                for j in range(0, len(c[i])):
+                    c[i][j] = float.fromhex(c[i][j])
+
+            c = np.array(c, dtype=float)
+            c1, c2, c3, c4, c5, c6 = [np.expand_dims(np.expand_dims(c[:,i], 0), -1) for i in range(NUM_CHANNELS)]
+            _, pred, pred_err = sess.run([optimizer, prediction, prediction_error], feed_dict={'X1:0': c1, 'X2:0': c2, 'X3:0': c3, 'X4:0': c4, 'X5:0': c5, 'X6:0': c6, 'label:0':action_label})
             
-            #_, pred, pred_err = sess.run([optimizer, prediction, prediction_error], feed_dict={'X1:0': a1, 'X2:0': a2, 'X3:0': a3, 'X4:0': a4, 'X5:0': a5, 'X6:0': a6, 'label:0':action_label})
-            
-            #np.append(past_actions, [a1,a2,a3,a4,a5,a6], 0)
+            np.append(past_actions, [c1,c2,c3,c4,c5,c6], 0)
             # past_actions -> encode in temporal context (RNN) -> "env representation" -> policy network -> action_label_2
 
-
+            if i % 5 == 0:
+                sp = saver.save(sess, local_save_path)
+                print('saved to path: ', sp)
 
