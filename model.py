@@ -72,7 +72,7 @@ batch_size = 256 * 2
 z_chan = 64
 #h_size = 64
 num_actions = 3
-port = '\\.\COM8'
+port = '\\.\COM4'
 
 # TRAINING
 actionspace = ['a','b','n']
@@ -128,7 +128,8 @@ optimizer = AdamWOptimizer(learning_rate=0.001, weight_decay=0.3).minimize(predi
 
 
 serial_connection = ser.Serial(port=port, baudrate=9600)
-print('serial port: ', serial_connection.name, ' used. \nfirst hex bit: ', serial_connection.read(1))
+serial_pad = [['000' for _ in range(NUM_CHANNELS)]]
+print('serial port: ', serial_connection.name, '\nfirst n hex bit: ', serial_connection.read(1))
 
 
 
@@ -156,11 +157,13 @@ with tf.Session() as sess:
             c = serial_connection.read(NUM_CHANNELS*batch_size*4)
             c = codecs.decode(c, 'ascii')
             c = c.split('\n')
-            c = [d.split('\t') for d in c[0:-1]]
+            c = np.array([d.split('\t') for d in c[1:-1] if len(d.split('\t'))==NUM_CHANNELS])
+            while np.shape(c)[0] < batch_size:
+                c = np.append(c, serial_pad, 0)
 
             for i in range(0,len(c)):
                 for j in range(0, len(c[i])):
-                    c[i][j] = float.fromhex(c[i][j])
+                    c[i,j] = float.fromhex(c[i,j])
 
             c = np.array(c, dtype=float)
             c1, c2, c3, c4, c5, c6 = [np.expand_dims(np.expand_dims(c[:,i], 0), -1) for i in range(NUM_CHANNELS)]
