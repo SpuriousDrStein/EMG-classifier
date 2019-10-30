@@ -2,6 +2,8 @@
 
 (Work in progress)
 
+* [shield module used](https://www.olimex.com/Products/Duino/Shields/SHIELD-EKG-EMG/open-source-hardware)
+
 
 ## Hardware Configuration
 
